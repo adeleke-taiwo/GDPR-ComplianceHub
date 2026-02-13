@@ -1,0 +1,12 @@
+# To ignore build output and dependencies from language stats
+dist/* linguist-vendored
+build/* linguist-vendored
+public/* linguist-vendored
+*.html linguist-vendored
+node_modules/* linguist-vendored
+
+# To mark actual code
+*.js linguist-detectable
+*.jsx linguist-detectable
+*.ts linguist-detectable
+*.tsx linguist-detectable
