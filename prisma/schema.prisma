@@ -1,0 +1,472 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum Role {
+  user
+  admin
+  dpo
+}
+
+enum ConsentPurpose {
+  marketing
+  analytics
+  third_party_sharing
+  profiling
+  newsletter
+}
+
+enum DataRequestType {
+  access
+  erasure
+}
+
+enum DataRequestStatus {
+  pending
+  processing
+  completed
+  rejected
+}
+
+enum LegalBasis {
+  consent
+  contract
+  legal_obligation
+  vital_interest
+  public_task
+  legitimate_interest
+}
+
+enum BreachSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum BreachStatus {
+  detected
+  investigating
+  contained
+  resolved
+}
+
+enum RetentionAction {
+  anonymize
+  delete
+  archive
+}
+
+enum CookieCategory {
+  necessary
+  analytics
+  marketing
+  preferences
+  functional
+}
+
+enum VendorStatus {
+  active
+  inactive
+  under_review
+  terminated
+}
+
+enum VendorRiskLevel {
+  low
+  medium
+  high
+  critical
+}
+
+enum DPIAStatus {
+  draft
+  in_review
+  approved
+  rejected
+  requires_revision
+}
+
+enum DPIARiskLevel {
+  low
+  medium
+  high
+  very_high
+}
+
+enum DPIAMitigationStatus {
+  planned
+  in_progress
+  completed
+  not_applicable
+}
+
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  role           Role     @default(user)
+  isActive       Boolean  @default(true)
+  consentVersion String   @default("1.0")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  consentRecords         ConsentRecord[]
+  dataRequests           DataRequest[]          @relation("UserDataRequests")
+  processedDataRequests  DataRequest[]          @relation("ProcessedDataRequests")
+  processingRecords      ProcessingRecord[]
+  createdBreaches        BreachNotification[]
+  breachUserNotifications BreachUserNotification[]
+  retentionPolicies      RetentionPolicy[]
+  auditLogs              AuditLog[]
+  cookieConsents         CookieConsentRecord[]
+  cookieScans            CookieScan[]
+  createdVendors         Vendor[]
+  vendorRiskAssessments  VendorRiskAssessment[]
+  createdDPIAs           DPIA[]                 @relation("DPIACreator")
+  reviewedDPIAs          DPIA[]                 @relation("DPIAReviewer")
+  approvedDPIAs          DPIA[]                 @relation("DPIAApprover")
+
+  @@map("users")
+}
+
+model ConsentRecord {
+  id        String         @id @default(uuid())
+  userId    String
+  purpose   ConsentPurpose
+  granted   Boolean        @default(false)
+  ipAddress String?
+  userAgent String?
+  grantedAt DateTime?
+  revokedAt DateTime?
+  createdAt DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("consent_records")
+}
+
+model DataRequest {
+  id            String            @id @default(uuid())
+  userId        String
+  type          DataRequestType
+  status        DataRequestStatus @default(pending)
+  processedById String?
+  responseUrl   String?
+  notes         String?
+  requestedAt   DateTime          @default(now())
+  completedAt   DateTime?
+
+  user        User  @relation("UserDataRequests", fields: [userId], references: [id], onDelete: Cascade)
+  processedBy User? @relation("ProcessedDataRequests", fields: [processedById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("data_requests")
+}
+
+model ProcessingRecord {
+  id                  String     @id @default(uuid())
+  purpose             String
+  dataCategories      String
+  legalBasis          LegalBasis
+  recipientCategories String?
+  retentionPeriodDays Int
+  isActive            Boolean    @default(true)
+  createdById         String
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  vendors   VendorProcessingRecord[]
+  dpias     DPIA[]
+
+  @@index([createdById])
+  @@map("processing_records")
+}
+
+model BreachNotification {
+  id                    String         @id @default(uuid())
+  title                 String
+  description           String
+  severity              BreachSeverity
+  affectedDataTypes     String
+  affectedUserCount     Int            @default(0)
+  discoveredAt          DateTime       @default(now())
+  reportedToAuthorityAt DateTime?
+  notifiedUsersAt       DateTime?
+  status                BreachStatus   @default(detected)
+  createdById           String
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  createdBy             User                     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  breachUserNotifications BreachUserNotification[]
+
+  @@index([createdById])
+  @@index([status])
+  @@map("breach_notifications")
+}
+
+model BreachUserNotification {
+  id             String    @id @default(uuid())
+  breachId       String
+  userId         String
+  notifiedAt     DateTime  @default(now())
+  acknowledgedAt DateTime?
+
+  breach BreachNotification @relation(fields: [breachId], references: [id], onDelete: Cascade)
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([breachId, userId])
+  @@map("breach_user_notifications")
+}
+
+model RetentionPolicy {
+  id                  String          @id @default(uuid())
+  dataCategory        String
+  retentionPeriodDays Int
+  action              RetentionAction
+  isActive            Boolean         @default(true)
+  createdById         String
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([createdById])
+  @@map("retention_policies")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Cookie {
+  id              String         @id @default(uuid())
+  name            String
+  category        CookieCategory
+  domain          String
+  path            String         @default("/")
+  description     String
+  purpose         String
+  duration        String
+  isFirstParty    Boolean        @default(true)
+  vendorId        String?
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  vendor          Vendor?                @relation(fields: [vendorId], references: [id])
+  consentRecords  CookieConsentRecord[]
+
+  @@unique([name, domain])
+  @@index([vendorId])
+  @@map("cookies")
+}
+
+model CookieConsentRecord {
+  id              String         @id @default(uuid())
+  userId          String?
+  sessionId       String
+  cookieId        String?
+  category        CookieCategory?
+  granted         Boolean
+  ipAddress       String?
+  userAgent       String?
+  consentVersion  String         @default("1.0")
+  grantedAt       DateTime       @default(now())
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+
+  user            User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cookie          Cookie? @relation(fields: [cookieId], references: [id])
+
+  @@index([userId])
+  @@index([sessionId])
+  @@map("cookie_consent_records")
+}
+
+model CookieScan {
+  id              String   @id @default(uuid())
+  domain          String
+  scannedById     String
+  cookiesFound    Int      @default(0)
+  scanResults     Json
+  status          String   @default("completed")
+  scannedAt       DateTime @default(now())
+
+  scannedBy User @relation(fields: [scannedById], references: [id], onDelete: Cascade)
+
+  @@index([scannedById])
+  @@map("cookie_scans")
+}
+
+model Vendor {
+  id                    String            @id @default(uuid())
+  name                  String
+  description           String?
+  website               String?
+  contactEmail          String?
+  contactPhone          String?
+  address               String?
+  country               String?
+  status                VendorStatus      @default(active)
+  riskLevel             VendorRiskLevel   @default(medium)
+  isSubProcessor        Boolean           @default(false)
+  parentVendorId        String?
+  dataProcessingAgreement String?
+  dpaSignedAt           DateTime?
+  contractStartDate     DateTime?
+  contractEndDate       DateTime?
+  lastAuditDate         DateTime?
+  nextAuditDate         DateTime?
+  notes                 String?
+  createdById           String
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  createdBy             User                     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  parentVendor          Vendor?                  @relation("SubProcessors", fields: [parentVendorId], references: [id])
+  subProcessors         Vendor[]                 @relation("SubProcessors")
+  processingRecords     VendorProcessingRecord[]
+  riskAssessments       VendorRiskAssessment[]
+  cookies               Cookie[]
+
+  @@index([status])
+  @@index([riskLevel])
+  @@index([createdById])
+  @@map("vendors")
+}
+
+model VendorProcessingRecord {
+  id                  String   @id @default(uuid())
+  vendorId            String
+  processingRecordId  String
+  role                String   @default("processor")
+  description         String?
+  createdAt           DateTime @default(now())
+
+  vendor              Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  processingRecord    ProcessingRecord @relation(fields: [processingRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, processingRecordId])
+  @@map("vendor_processing_records")
+}
+
+model VendorRiskAssessment {
+  id                    String          @id @default(uuid())
+  vendorId              String
+  assessedById          String
+  riskLevel             VendorRiskLevel
+  dataAccessScope       String
+  securityMeasures      String
+  complianceCertifications String?
+  findings              String?
+  recommendations       String?
+  assessmentDate        DateTime        @default(now())
+  nextReviewDate        DateTime?
+  createdAt             DateTime        @default(now())
+
+  vendor                Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  assessedBy            User   @relation(fields: [assessedById], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@map("vendor_risk_assessments")
+}
+
+model DPIA {
+  id                      String       @id @default(uuid())
+  title                   String
+  description             String
+  processingRecordId      String?
+  dataTypes               String
+  dataSubjects            String
+  processingPurpose       String
+  legalBasis              LegalBasis
+  necessityJustification  String
+  riskLevel               DPIARiskLevel @default(medium)
+  status                  DPIAStatus   @default(draft)
+  reviewedById            String?
+  reviewedAt              DateTime?
+  approvedById            String?
+  approvedAt              DateTime?
+  reviewNotes             String?
+  createdById             String
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  processingRecord        ProcessingRecord? @relation(fields: [processingRecordId], references: [id])
+  createdBy               User         @relation("DPIACreator", fields: [createdById], references: [id])
+  reviewedBy              User?        @relation("DPIAReviewer", fields: [reviewedById], references: [id])
+  approvedBy              User?        @relation("DPIAApprover", fields: [approvedById], references: [id])
+  risks                   DPIARisk[]
+  mitigations             DPIAMitigation[]
+
+  @@index([status])
+  @@index([createdById])
+  @@map("dpias")
+}
+
+model DPIARisk {
+  id                String        @id @default(uuid())
+  dpiaId            String
+  title             String
+  description       String
+  riskLevel         DPIARiskLevel
+  likelihood        Int           @default(3)
+  impact            Int           @default(3)
+  affectedRights    String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  dpia              DPIA            @relation(fields: [dpiaId], references: [id], onDelete: Cascade)
+  mitigations       DPIAMitigation[]
+
+  @@map("dpia_risks")
+}
+
+model DPIAMitigation {
+  id                String                @id @default(uuid())
+  dpiaId            String
+  riskId            String?
+  title             String
+  description       String
+  status            DPIAMitigationStatus  @default(planned)
+  responsiblePerson String?
+  deadline          DateTime?
+  completedAt       DateTime?
+  notes             String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  dpia              DPIA      @relation(fields: [dpiaId], references: [id], onDelete: Cascade)
+  risk              DPIARisk? @relation(fields: [riskId], references: [id])
+
+  @@map("dpia_mitigations")
+}
