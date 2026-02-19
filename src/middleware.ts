@@ -15,6 +15,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Protected page routes: check for refreshToken cookie
+  const refreshToken = request.cookies.get('refreshToken')?.value;
+  if (!refreshToken) {
+    const loginUrl = new URL('/login', request.url);
+    return NextResponse.redirect(loginUrl);
+  }
+
   return NextResponse.next();
 }
 

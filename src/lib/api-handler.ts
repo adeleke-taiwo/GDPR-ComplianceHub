@@ -46,6 +46,13 @@ export function apiHandler(handler: RouteHandler): RouteHandler {
         );
       }
 
+      if (err instanceof SyntaxError && err.message.includes('JSON')) {
+        return NextResponse.json(
+          { success: false, message: 'Invalid request body' },
+          { status: 400 }
+        );
+      }
+
       console.error('Unhandled error:', err);
       return NextResponse.json(
         {
